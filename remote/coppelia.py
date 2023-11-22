@@ -9,7 +9,7 @@ class Coppelia:
     def __init__(self, port=19990):
         self.client_id = self.connect(port)
         self.__init_handles()
-        self.__init_blocks(quantity=1)
+        self.__init_blocks(quantity=0)
 
         # Medidas del robot - Ajustadas según el Coppelia
         self.L1 = 29.55
@@ -17,7 +17,7 @@ class Coppelia:
         self.L3 = 108
         self.L4 = 20.27
         self.L5 = 168.67
-        self.E = 58.85  # Sin gripper 24.28
+        self.E = 24.28 #58.85  # Sin gripper 24.28
 
     def connect(self, port):
         """ 
@@ -72,7 +72,7 @@ class Coppelia:
          param: q -> Array of angles in degrees
         """
         # Calc model using DH
-        T06 = self.foward_kynematics(q)
+        T06 = self.foward_kinematics(q)
         print(f"Matriz T06 calculada con DH utilizando: {q}\n")
         sp.pprint(T06)
         time.sleep(0.5)

@@ -4,8 +4,12 @@ import time
 
 if __name__ == '__main__':
     c = Coppelia()
-    qo = [65, -45, 45, 0, 0, 0]
-    T06 = c.foward_kinematics(qo)
+    x, y, z = np.array([200 - 25, 100, 90 + 35])
+    T06 = [[1,  0,  0,  x],
+           [0,  -1, 0,  y],
+           [0,  0,  -1, z],
+           [0,  0, 0,  1]]
+
     q = c.inverse_kinematics(np.array(T06, dtype=np.float64).squeeze())
     c.move_joints(q)
     time.sleep(2)
