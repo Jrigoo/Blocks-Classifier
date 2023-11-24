@@ -6,38 +6,72 @@ import time
 
 
 class Client:
-    def __init__(self, port: int = 19990) -> None:
-        sim.simxFinish(-1)
-        self.id = sim.simxStart("127.0.0.1", port, True, True, 2000, 5)
+    """ 
+    Provides a function to connect to coppelia simulator.
+    Only used once during every project.
+    """
+    @staticmethod
+    def connect(port: int = 19990) -> None:
+        """ 
+        Function that connects to the simulator
 
-        if self.id == 0:
-            print("Contectado a {}".format(port))
+        args:
+            port: Port number, default is 19990
+        returns:
+            client_id: If connected returns 0
+        """
+        sim.simxFinish(-1)
+        client_id = sim.simxStart(
+            "127.0.0.1", port, True, True, 2000, 5)
+
+        if client_id == 0:
+            print(f"Conectado al puerto {port}")
         else:
             print("No se pudo conectar")
+        return client_id
 
 
-class Object:
-    def __init__(self, client_id: int, path: str, position=False):
+class Object():
+    """ 
+    A Object can be anything in the simulator. 
+    A table, a cup, a block.
+    Warning: Use this after Client Connection is made
+
+    args:
+        path: String with the object relative path
+        position: Bool used in case object position
+        is required
+    """
+
+    def __init__(self, path: str, position=False):
         self.__path = path
-        self.__client_id = client_id
-
         self.handler = sim.simxGetObjectHandle(
-            self.__client_id, self.__path, sim.simx_opmode_blocking)[1]
+            0, self.__path, sim.simx_opmode_blocking)[1]
 
         if position:
             self.position = np.around(np.array(sim.simxGetObjectPosition(
-                self.__client_id, self.handler, -1, sim.simx_opmode_blocking)[1]), 5)
+                0, self.handler, -1, sim.simx_opmode_blocking)[1]), 5)
 
 
 class Mirobot():
-    def __init__(self, client_id):
-        """ 
-        Init class. Initializes handlers, objects
-        and attributes 
-        """
-        self.client_id = client_id
+    """ 
+    Initializes the Mirobot.
+    Provides all the foward and inverse kinematics
+    to control the robot to desired positions.
+
+    args:
+        path: String with the robot relative path
+        gripper: Float value with gripper length. Default 
+        is 58.85 for coppelia vacum gripper. Without any 
+        gripper the length is 24.28
+
+    Warning: Use this after Client Connection is made
+    """
+
+    def __init__(self, path: str, gripper=58.85):
+        self.__path = path
         self.joints = [
-            Object(self.client_id, f"./Mirobot/joint{i+1}") for i in range(6)]
+            Object(f"{self.__path}/joint{i+1}") for i in range(6)]
 
         # Robot measurements
         self.__L1 = 29.55
@@ -45,17 +79,17 @@ class Mirobot():
         self.__L3 = 108
         self.__L4 = 20.27
         self.__L5 = 168.67
-        self.__E = 58.85  # Without gripper 24.28
+        self.__E = gripper  # Without gripper 24.28
 
     def __Tdh(self, d: float, theta: float, a: float, alpha: float) -> list:
         """ 
-        Function that calculates the result TH matrix 
+        Calculates the result TH matrix 
         for Denavit Hartenberg (DH) method
 
         args: 
             DH variables (d,theta,a,alpha)
         returns: 
-            T: Homogeneus Transform Matrix
+            T: Homogeneus Transform Matrix (4x4)
         """
         T = sp.Matrix([[sp.cos(theta), -sp.cos(alpha)*sp.sin(theta), sp.sin(alpha)*sp.sin(theta), a*sp.cos(theta)],
                        [sp.sin(theta), sp.cos(alpha)*sp.cos(theta), -
@@ -75,7 +109,7 @@ class Mirobot():
         """
         for angle, joint in zip(desired_angles, self.joints):
             sim.simxSetJointTargetPosition(
-                self.client_id, joint.handler, np.deg2rad(angle), sim.simx_opmode_oneshot)
+                0, joint.handler, np.deg2rad(angle), sim.simx_opmode_oneshot)
 
     def foward_kinematics(self, angles_per_joint: list) -> list:
         """ 
@@ -85,7 +119,7 @@ class Mirobot():
         args: 
             angles_per_joint: Array of 6 angles in degrees
         returns: 
-            T06: Homogeneus Transform Matrix
+            T06: Homogeneus Transform Matrix (4x4) in meters
         """
         q1, q2, q3, q4, q5, q6 = angles_per_joint
         ds = np.array([self.__L2, 0, 0, self.__L5, 0, self.__E])
@@ -162,7 +196,7 @@ class Mirobot():
 
         return calc_joints
 
-    def move(self, position: list, orientation: list = [[1, 0, 0], [0, -1, 0], [0, 0, -1], [0, 0, 0]]) -> None:
+    def move(self, position: list, orientation: list = [[1, 0, 0], [0, -1, 0], [0, 0, -1]]) -> None:
         """ 
         Void method to move robot to desired position considering
         a vertical tip orientation as default. This method is used to
@@ -170,23 +204,20 @@ class Mirobot():
 
         args:
             position: Array with x,y,z positions in milimeters
-            orientation: Rotational Matrix. Default is 90 deg
+            orientation: Rotational Matrix. The default is with the 
+            effector at 90 deg or vertical (homing position)
         """
+        # Define Homogeneous Transformation Matrix in Meters
+        position = np.array(position)*1000  # mm to m
+        T06 = np.eye(4, dtype=np.float64)
+        T06[:3, :3] = orientation
+        T06[:3, 3] = position
 
-        x, y, z = np.array(position)*1000  # mm to m
-        orientation[0].append(x)
-        orientation[1].append(y)
-        orientation[2].append(z)
-        orientation[3].append(1)
-
-        # Homogeneous Transformation Matrix
-        T06 = np.array(orientation, dtype=np.float64)
-
-        # Calc. Necessary Angles
-        joints = self.inverse_kinematics(T06)
+        # Calculate angles
+        joints_angles = self.inverse_kinematics(T06)
 
         # Set Joints Angles
-        self.__set_joints(joints)
+        self.__set_joints(joints_angles)
         time.sleep(1)
 
     def set_gripper(self, state: int) -> None:
@@ -197,20 +228,26 @@ class Mirobot():
         args:
             state (int): 1 means True | 0 means False
         """
-        sim.simxCallScriptFunction(self.client_id, './Mirobot', sim.sim_scripttype_childscript,
+        sim.simxCallScriptFunction(0, self.__path, sim.sim_scripttype_childscript,
                                    'setGripperOn', [state], [], [], bytearray(), sim.simx_opmode_blocking)
         time.sleep(0.5)
 
 
 class Camera():
-    def __init__(self, client_id):
-        self.__client_id = client_id
+    """ 
+    Initializes Camera Vision sensor.
+    Only has one method dedicated to color classification
+
+    Warning: Use this after Client Connection is made
+    """
+
+    def __init__(self):
         self.__path = "./camera"
         self.__camera = sim.simxGetObjectHandle(
-            self.__client_id, self.__path, sim.simx_opmode_blocking)[1]
+            0, self.__path, sim.simx_opmode_blocking)[1]
 
         sim.simxGetVisionSensorImage(
-            self.__client_id, self.__camera, 0, sim.simx_opmode_streaming)
+            0, self.__camera, 0, sim.simx_opmode_streaming)
 
     def color_classification(self):
         """ 
@@ -221,7 +258,7 @@ class Camera():
             color: String value with color or None
         """
         returnCode, resolution, image = sim.simxGetVisionSensorImage(
-            self.__client_id, self.__camera, 0, sim.simx_opmode_buffer)
+            0, self.__camera, 0, sim.simx_opmode_buffer)
         if returnCode == 0 and image:
             img = np.array(image, dtype=np.uint8)
             img.resize([resolution[0], resolution[1], 3])
@@ -254,8 +291,17 @@ class Camera():
 
 
 class Conveyor():
-    def __init__(self, client_id: int):
-        self.__client_id = client_id
+    """ 
+    Initializes Conveyor. Only has one method
+    to set conveyor velocity. In order to be used you need 
+    to add the conveyor object inside a Dummy called "Conveyor".
+    This would cause the Dummy Conveyor to have a child.
+
+    Last add a child script to the Dummy with the function desired. 
+    The function should be called setConveyor
+
+    Warning: Use this after Client Connection is made
+    """
 
     def set_velocity(self, velocity) -> None:
         """ 
@@ -266,23 +312,32 @@ class Conveyor():
         args:
             velocity (float): Velocity in m/s
         """
-        sim.simxCallScriptFunction(self.__client_id, './Conveyor', sim.sim_scripttype_childscript,
+        sim.simxCallScriptFunction(0, './Conveyor', sim.sim_scripttype_childscript,
                                    'setConveyor', [], [velocity], [], bytearray(), sim.simx_opmode_blocking)
 
 
 class ProximitySensor():
-    def __init__(self, client_id: int):
-        self.__client_id = client_id
-        self.sensor = Object(self.__client_id,"./proximity_sensor")
+    """  
+    Initializes Proximity Sensor. Only has one method to read its value
+    args:
+        path: String with the sensor relative path. Default value is 
+        "./proximity_sensor"
+
+    Warning: Use this after Client Connection is made
+    """
+
+    def __init__(self, path: str = "./proximity_sensor"):
+        self.__path = path
+        self.sensor = Object(self.__path)
 
     def read(self) -> bool:
         """ 
-        Read Proximity Sensor value
+        Read Proximity Sensor state
 
         returns: 
             state (Bool): True if sensor detects an obj. 
                           false if not
         """
         state = sim.simxReadProximitySensor(
-            self.__client_id, self.sensor.handler, sim.simx_opmode_blocking)[1]
+            0, self.sensor.handler, sim.simx_opmode_blocking)[1]
         return state
