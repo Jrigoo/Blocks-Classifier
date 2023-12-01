@@ -13,22 +13,20 @@ class Client:
     @staticmethod
     def connect(port: int = 19990) -> None:
         """ 
-        Function that connects to the simulator
+        Static method that initializes connection
+        to the simulator
 
         args:
             port: Port number, default is 19990
-        returns:
-            client_id: If connected returns 0
         """
         sim.simxFinish(-1)
         client_id = sim.simxStart(
             "127.0.0.1", port, True, True, 2000, 5)
 
         if client_id == 0:
-            print(f"Conectado al puerto {port}")
+            print(f"Connected to {port}")
         else:
-            print("No se pudo conectar")
-        return client_id
+            raise Exception(f"Couldn't connect to port {port}")
 
 
 class Object():
@@ -92,19 +90,19 @@ class Mirobot():
             T: Homogeneus Transform Matrix (4x4)
         """
         T = sp.Matrix([[sp.cos(theta), -sp.cos(alpha)*sp.sin(theta), sp.sin(alpha)*sp.sin(theta), a*sp.cos(theta)],
-                       [sp.sin(theta), sp.cos(alpha)*sp.cos(theta), -
+                    [sp.sin(theta), sp.cos(alpha)*sp.cos(theta), -
                         sp.sin(alpha)*sp.cos(theta), a*sp.sin(theta)],
-                       [0,            sp.sin(alpha),               sp.cos(
-                           alpha),              d],
-                       [0,            0,                           0,                          1]])
+                    [0,            sp.sin(alpha),               sp.cos(
+                        alpha),              d],
+                    [0,            0,                           0,                          1]])
         return T
 
     def __set_joints(self, desired_angles: list) -> None:
         """ 
-         Void method to move robot joins to 
-         desired angles
+        Void method to move robot joins to 
+        desired angles
 
-         args: 
+        args: 
             desired_angles: Array of desired angles per join in degrees
         """
         for angle, joint in zip(desired_angles, self.joints):
@@ -133,7 +131,7 @@ class Mirobot():
 
         # Homogeneous Transform T06
         T06 = sp.simplify(T01*T12*T23*T34*T45 *
-                          T56).applyfunc(lambda x: '{:.4f}'.format(x))
+                        T56).applyfunc(lambda x: '{:.4f}'.format(x))
         return T06
 
     def inverse_kinematics(self, T06) -> None:
@@ -146,55 +144,62 @@ class Mirobot():
             T06: Transformation Matrix in Meters
         return: 
             calc_joints: Joints array of angles in degrees
+        Exception:
+            Return an error if the position and orientation 
+            is outside robot workspace
         """
-        # Wrist position
-        pw = T06[:3, 3] - T06[:3, 2]*self.__E
-        wx, wy, wz = pw
+        try:
+            # Wrist position
+            pw = T06[:3, 3] - T06[:3, 2]*self.__E
+            wx, wy, wz = pw
 
-        # Obtain q1
-        q1 = np.rad2deg(np.arctan(wy/wx))
+            # Obtain q1
+            q1 = np.rad2deg(np.arctan(wy/wx))
 
-        # Obtain q2
-        w = np.sqrt(wx**2 + wy**2)
-        beta = np.arctan((wz - self.__L2)/(w - self.__L1))
-        Lq2w = np.sqrt((w - self.__L1)**2 + (wz - self.__L2)**2)  # Hipotenusa
-        Lq3w = np.sqrt(self.__L4**2 + self.__L5**2)  # Distancia oblicuo
-        alpha = np.arccos(
-            (self.__L3**2 + Lq2w**2 - (Lq3w)**2)/(2*self.__L3*Lq2w))
-        q2 = np.rad2deg((beta + alpha) - (np.pi/2))
+            # Obtain q2
+            w = np.sqrt(wx**2 + wy**2)
+            beta = np.arctan((wz - self.__L2)/(w - self.__L1))
+            Lq2w = np.sqrt((w - self.__L1)**2 + (wz - self.__L2)**2)  # Hipotenusa
+            Lq3w = np.sqrt(self.__L4**2 + self.__L5**2)  # Distancia oblicuo
+            alpha = np.arccos(
+                (self.__L3**2 + Lq2w**2 - (Lq3w)**2)/(2*self.__L3*Lq2w))
+            q2 = np.rad2deg((beta + alpha) - (np.pi/2))
 
-        # Obtain q3
-        theta = np.arctan(self.__L5/self.__L4)
-        gamma = np.arccos(
-            (self.__L3**2 + Lq3w**2 - (Lq2w)**2)/(2*self.__L3*Lq3w))
-        q3 = np.rad2deg((gamma + theta) - (np.pi))
+            # Obtain q3
+            theta = np.arctan(self.__L5/self.__L4)
+            gamma = np.arccos(
+                (self.__L3**2 + Lq3w**2 - (Lq2w)**2)/(2*self.__L3*Lq3w))
+            q3 = np.rad2deg((gamma + theta) - (np.pi))
 
-        # DH parameteres to obtain R03
-        ds = np.array([self.__L2, 0, 0])
-        thetas = np.array([q1, 90+q2, q3])*(np.pi/180)
-        a_s = np.array([self.__L1, self.__L3, self.__L4])
-        alphas = np.array([90, 0, 90])*(np.pi/180)
+            # DH parameteres to obtain R03
+            ds = np.array([self.__L2, 0, 0])
+            thetas = np.array([q1, 90+q2, q3])*(np.pi/180)
+            a_s = np.array([self.__L1, self.__L3, self.__L4])
+            alphas = np.array([90, 0, 90])*(np.pi/180)
 
-        # Get Transformations to T03
-        T01, T12, T23 = [self.__Tdh(ds[i], thetas[i], a_s[i], alphas[i])
-                         for i in range(3)]
-        T03 = sp.simplify(T01*T12*T23).applyfunc(lambda x: '{:.4f}'.format(x))
-        T03 = np.array(T03, dtype=np.float64).squeeze()
+            # Get Transformations to T03
+            T01, T12, T23 = [self.__Tdh(ds[i], thetas[i], a_s[i], alphas[i])
+                            for i in range(3)]
+            T03 = sp.simplify(T01*T12*T23).applyfunc(lambda x: '{:.4f}'.format(x))
+            T03 = np.array(T03, dtype=np.float64).squeeze()
 
-        # Obtain q4,q5,q6
-        R03 = T03[:3, :3]
-        R30 = R03.T
-        R06 = T06[:3, :3]
-        R36 = np.dot(R30, R06)
+            # Obtain q4,q5,q6
+            R03 = T03[:3, :3]
+            R30 = R03.T
+            R06 = T06[:3, :3]
+            R36 = np.dot(R30, R06)
 
-        q5 = np.rad2deg(np.arcsin(R36[2, 2]))
-        q4 = np.rad2deg(np.arctan2(-R36[1, 2], -R36[0, 2]))
-        q6 = np.rad2deg(np.arctan2(-R36[2, 1], R36[2, 0]))
+            q5 = np.rad2deg(np.arcsin(R36[2, 2]))
+            q4 = np.rad2deg(np.arctan2(-R36[1, 2], -R36[0, 2]))
+            q6 = np.rad2deg(np.arctan2(-R36[2, 1], R36[2, 0]))
 
-        # Calculated Joints
-        calc_joints = np.around(np.array([q1, q2, q3, q4, q5, q6]), 2)
+            # Calculated Joints
+            calc_joints = np.around(np.array([q1, q2, q3, q4, q5, q6]), 2)
 
-        return calc_joints
+            return calc_joints
+        except:
+            raise Exception(
+                "The requested position is not posible because is outside the robot's workspace")
 
     def move(self, position: list, orientation: list = [[1, 0, 0], [0, -1, 0], [0, 0, -1]]) -> None:
         """ 
@@ -213,7 +218,7 @@ class Mirobot():
         T06[:3, :3] = orientation
         T06[:3, 3] = position
 
-        # Calculate angles
+        # Calculate angles if possible
         joints_angles = self.inverse_kinematics(T06)
 
         # Set Joints Angles
